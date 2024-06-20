@@ -1,4 +1,4 @@
-﻿/*
+/*
  6-19-2024
  KeyStates W.I.P
  domer/PeripheralVisionPD2
@@ -124,15 +124,6 @@ namespace KeyStates
                     if (GetAsyncKeyState(i) != 0)
                     {
                         char key = (char)i;
-                        if (ConIntr && i == 0x59)
-                        {
-                            IEnumerable<string> ExistFiles = Directory.EnumerateFiles(TmpPath);
-                            foreach (string ExistFile in ExistFiles)
-                                DbgMsg(ExistFile);
-                            Directory.Delete(TmpPath, true);
-                            DbgMsg("folder deleted");
-                            EmrKill = true;
-                        }
                         if (key == ConHide)     // f6 key to toggle dbg console
                             TglCon();
                         if (i == KillKey)    // f8 to kill program and delete all files
