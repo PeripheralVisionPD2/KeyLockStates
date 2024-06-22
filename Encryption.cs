@@ -56,17 +56,17 @@ namespace Encryption
 
         public string Decrypt(string encryptedText)
         {
-            AesAlg.Key = SecKey;
-            AesAlg.IV = SecIV;
-            var decryptor = AesAlg.CreateDecryptor();
-
-            byte[] encryptedBytes = Convert.FromBase64String(encryptedText);
-            using var msDecrypt = new MemoryStream(encryptedBytes);
-            using var csDecrypt = new CryptoStream(msDecrypt, decryptor, CryptoStreamMode.Read);
-            using var srDecrypt = new StreamReader(csDecrypt);
-            var RetVal = "";
             try
             {
+                AesAlg.Key = SecKey;
+                AesAlg.IV = SecIV;
+                var decryptor = AesAlg.CreateDecryptor();
+
+                byte[] encryptedBytes = Convert.FromBase64String(encryptedText);
+                using var msDecrypt = new MemoryStream(encryptedBytes);
+                using var csDecrypt = new CryptoStream(msDecrypt, decryptor, CryptoStreamMode.Read);
+                using var srDecrypt = new StreamReader(csDecrypt);
+                var RetVal = "";
                 RetVal = srDecrypt.ReadToEnd();
                 return RetVal;
             }

