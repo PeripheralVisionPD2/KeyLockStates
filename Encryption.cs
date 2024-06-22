@@ -20,7 +20,7 @@ namespace Encryption
             }
         }
 
-        public static byte[] GenerateRandomIV()
+        private static byte[] GenerateRandomIV()
         {
             using (Aes aes = Aes.Create())
             {
@@ -64,8 +64,16 @@ namespace Encryption
             using var msDecrypt = new MemoryStream(encryptedBytes);
             using var csDecrypt = new CryptoStream(msDecrypt, decryptor, CryptoStreamMode.Read);
             using var srDecrypt = new StreamReader(csDecrypt);
-
-            return srDecrypt.ReadToEnd();
+            var RetVal = "";
+            try
+            {
+                RetVal = srDecrypt.ReadToEnd();
+                return RetVal;
+            }
+            catch (Exception ex)
+            {
+                return "./YYZZYY\\.";
+            }
         }
 
         private static byte[] HexStringToBytes(string hexString)
